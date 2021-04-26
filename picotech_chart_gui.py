@@ -85,6 +85,7 @@ class ConfigWidget(QtWidgets.QWidget):
         self.stopchart=False
         self.chartstopped=True
         self.stopchartboolean=False
+        self.singleshot=False
         
         self.config = toml.loads(self.client.get_config())
 
@@ -155,14 +156,15 @@ class ConfigWidget(QtWidgets.QWidget):
         settings_layout.setContentsMargins(5, 5, 5, 5)
         layout.addWidget(settings_scroll_area)
         
-
-
         input_table = qtypes.widgets.InputTable()
         settings_layout.addWidget(input_table)
         self.voltage_range = qtypes.Enum(allowed_values=Channel.ranges, initial_value=self.config["channels"][self.signal_channel_key]["range"],  name="voltage_range")
         self.voltage_range.updated.connect(self.on_voltage_range_updated)
         input_table.append(self.voltage_range)
         
+        self.single_shot_button = QtWidgets.QCheckBox("SINGLE SHOT")
+        settings_layout.addWidget(self.single_shot_button)
+
         settings_layout.addStretch(1)
         self.sample_xi = self.client.get_mappings()['time']
 
@@ -227,8 +229,8 @@ class ConfigWidget(QtWidgets.QWidget):
         self.chart_plot_scatter = self.chart_plot_widget.add_scatter()
         self.chart_plot_widget.set_labels(xlabel="chart time (sec)", ylabel="volts")
         display_layout.addWidget(self.chart_plot_widget)
-        line = qtypes.widgets.Line("V")
-        layout.addWidget(line)
+        line1 = qtypes.widgets.Line("V")
+        layout.addWidget(line1)
         
         settings_container_widget = QtWidgets.QWidget()
         settings_scroll_area = qtypes.widgets.ScrollArea()
@@ -255,9 +257,10 @@ class ConfigWidget(QtWidgets.QWidget):
         self.ending_sample_temp.updated.connect(self.on_ending_sample_updated)
         input_table3.append(self.ending_sample_temp)
         self.settings_layout.addWidget(input_table3)
-        line = qtypes.widgets.Line("H")
-        self.settings_layout.addWidget(line)
-        
+
+        line2 = qtypes.widgets.Line("H")
+        self.settings_layout.addWidget(line2)
+
         # run button
         self.run_chart_button = qtypes.widgets.PushButton("RUN", background="green")
         self.run_chart_button.clicked.connect(self.run_chart)
@@ -370,7 +373,7 @@ class ConfigWidget(QtWidgets.QWidget):
         self.busy=True
         chunks=self.nchunks
         time.sleep(self.norm_interval/1000)
-        
+        self.singleshot=bool(self.single_shot_button.isChecked())
         shotsdata=np.zeros(len(self.sample_xi))
         index=0
         begtime=0
@@ -381,7 +384,11 @@ class ConfigWidget(QtWidgets.QWidget):
             self.chunk_temp.set(i+1)
             yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
             yi2 = yi[self.signal_channel_index].mean(axis=0)
-            self.update_samples_graph(yi2)
+            if self.singleshot:
+                yitemp=yi[self.signal_channel_index][0]
+            else:
+                yitemp=yi2
+            self.update_samples_graph(yitemp)
             shotsdata=shotsdata+yi2
             self.update_shots_graph(shotsdata/(i+1))
             self.eventloop.processEvents()
@@ -400,6 +407,7 @@ class ConfigWidget(QtWidgets.QWidget):
         waittime=self.wait_time
         beg_index=self.beginning_sample
         end_index=self.ending_sample
+        self.singleshot=bool(self.single_shot_button.isChecked())
         starttime=time.perf_counter()
         chunks=self.nchunks
         shotsdata=np.zeros(len(self.sample_xi))
@@ -413,23 +421,29 @@ class ConfigWidget(QtWidgets.QWidget):
         # inlined (hardcode) instead of used acquire_nchunks to avoid racing on self.busy
         # can instead go to subroutine if self.busy conditional on update unnecessary
         while (self.stop_chart_button.isChecked() != True):
-        
-            for i in range(chunks):
-                if index != 0:
-                     begtime=time.perf_counter()
-                self.chunk_temp.set(i+1)
+            if self.singleshot:
                 yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
-                yi2 = yi[self.signal_channel_index].mean(axis=0)
-                self.update_samples_graph(yi2)
-                shotsdata=shotsdata+yi2
-                self.update_shots_graph(shotsdata/(i+1))
+                yi2 = yi[self.signal_channel_index][0]
+                self.shotsdata=yi2
+                time.sleep(self.norm_interval/1000)
                 self.eventloop.processEvents()
-                if index != 0:
-                    midtime=time.perf_counter()-begtime
-                    time.sleep(midtime)
-                index=index+1    
+            else:
+                for i in range(chunks):
+                    if index != 0:
+                        begtime=time.perf_counter()
+                    self.chunk_temp.set(i+1)
+                    yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
+                    yi2 = yi[self.signal_channel_index].mean(axis=0)
+                    self.update_samples_graph(yi2)
+                    shotsdata=shotsdata+yi2
+                    self.update_shots_graph(shotsdata/(i+1))
+                    self.eventloop.processEvents()
+                    if index != 0:
+                        midtime=time.perf_counter()-begtime
+                        time.sleep(midtime)
+                    index=index+1    
+                self.shotsdata=shotsdata/chunks
             
-            self.shotsdata=shotsdata/chunks
             currenttime=time.perf_counter()-starttime
             shotsdataab = self.shotsdata[beg_index:end_index]
             #currently averaging the data within the indices
@@ -488,11 +502,17 @@ class ConfigWidget(QtWidgets.QWidget):
 
     def update(self):
         # self.busy conditional probably not necessary
+        self.singleshot=bool(self.single_shot_button.isChecked())
         if self.busy == False:
-            yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
-            yi2 = yi[self.signal_channel_index].mean(axis=0)
-            self.update_samples_graph(yi2)
-            #don't need to process Eventloop here but may put it in anyway
+            if self.singleshot:
+                yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
+                yi2 = yi[self.signal_channel_index][0]
+                self.update_samples_graph(yi2)
+            else:
+                yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
+                yi2 = yi[self.signal_channel_index].mean(axis=0)
+                self.update_samples_graph(yi2)
+                #don't need to process Eventloop here but may put it in anyway
         self.busy=False
 
 
