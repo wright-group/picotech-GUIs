@@ -1,0 +1,29 @@
+[scope]
+enable = true
+log_level = "info"
+log_to_file = false
+loop_at_startup = true
+make = "picotech"
+max_samples = 200
+model = "ps2000"
+oversample = 16
+timebase = 6
+trigger_delay = -15
+trigger_rising = true
+trigger_self = true
+trigger_threshold = 500000
+port = 38008
+shots_processing_path = "C:\\work\\wright\\python\\yaqd_picotech\\examples\\process_module.py"
+trigger_channel = "A"
+
+[scope.channels.A]
+enabled = true
+coupling = "DC"
+range = "5 V"
+invert = false
+
+[scope.channels.B]
+enabled = true
+coupling = "DC"
+range = "5 V"
+invert = false
