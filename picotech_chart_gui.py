@@ -346,11 +346,14 @@ class ConfigWidget(QtWidgets.QWidget):
             print('Chart not stopped.')
 
     def on_voltage_range_updated(self):
-        self.busy=True
-        newrange = self.voltage_range.get()
-        time.sleep(2*self.norm_interval/1000)
-        self.on_shot_channel_updated(newrange)
-        self.busy=False
+        if self.busy != True:
+            self.busy=True
+            newrange = self.voltage_range.get()
+            time.sleep(2*self.norm_interval/1000)
+            self.on_shot_channel_updated(newrange)
+            self.busy=False
+        else:
+            print('System busy...range not updated.')
 
     def on_wait_time_updated(self):
         new = float(self.wait_time_temp.get())
@@ -368,99 +371,104 @@ class ConfigWidget(QtWidgets.QWidget):
         self.samples_plot_widget.set_ylim(ymin * 1.05, ymax * 1.05)
         self.chart_plot_widget.set_ylim(ymin * 1.05, ymax * 1.05)
 
-
     def acquire_nchunks(self):
-        self.busy=True
-        chunks=self.nchunks
-        time.sleep(self.norm_interval/1000)
-        self.singleshot=bool(self.single_shot_button.isChecked())
-        shotsdata=np.zeros(len(self.sample_xi))
-        index=0
-        begtime=0
-        midtime=0
-        for i in range(chunks):
-            if index != 0:
-                begtime=time.perf_counter()
-            self.chunk_temp.set(i+1)
-            yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
-            yi2 = yi[self.signal_channel_index].mean(axis=0)
-            if self.singleshot:
-                yitemp=yi[self.signal_channel_index][0]
-            else:
-                yitemp=yi2
-            self.update_samples_graph(yitemp)
-            shotsdata=shotsdata+yi2
-            self.update_shots_graph(shotsdata/(i+1))
-            self.eventloop.processEvents()
-            if index != 0:
-                midtime=time.perf_counter()-begtime
-                time.sleep(midtime)
-            index=index+1    
-        
-        self.shotsdata=shotsdata/chunks
-        self.busy=False
-        return shotsdata/chunks
-        
-    def run_chart(self):
-        self.busy=True
-        time.sleep(self.norm_interval/1000)
-        waittime=self.wait_time
-        beg_index=self.beginning_sample
-        end_index=self.ending_sample
-        self.singleshot=bool(self.single_shot_button.isChecked())
-        starttime=time.perf_counter()
-        chunks=self.nchunks
-        shotsdata=np.zeros(len(self.sample_xi))
-           
-        self.chartstopped=False
-        chartdata=[]
-        timedata=[]
-        index=0
-        begtime=0
-        midtime=0
-        # inlined (hardcode) instead of used acquire_nchunks to avoid racing on self.busy
-        # can instead go to subroutine if self.busy conditional on update unnecessary
-        while (self.stop_chart_button.isChecked() != True):
-            if self.singleshot:
+        if self.busy==False:
+            self.busy=True
+            chunks=self.nchunks
+            time.sleep(self.norm_interval/1000)
+            self.singleshot=bool(self.single_shot_button.isChecked())
+            shotsdata=np.zeros(len(self.sample_xi))
+            index=0
+            begtime=0
+            midtime=0
+            for i in range(chunks):
+                if index != 0:
+                    begtime=time.perf_counter()
+                self.chunk_temp.set(i+1)
                 yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
-                yi2 = yi[self.signal_channel_index][0]
-                self.shotsdata=yi2
-                time.sleep(self.norm_interval/1000)
+                yi2 = yi[self.signal_channel_index].mean(axis=0)
+                if self.singleshot:
+                    yitemp=yi[self.signal_channel_index][0]
+                else:
+                    yitemp=yi2
+                self.update_samples_graph(yitemp)
+                shotsdata=shotsdata+yi2
+                self.update_shots_graph(shotsdata/(i+1))
                 self.eventloop.processEvents()
-            else:
-                for i in range(chunks):
-                    if index != 0:
-                        begtime=time.perf_counter()
-                    self.chunk_temp.set(i+1)
-                    yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
-                    yi2 = yi[self.signal_channel_index].mean(axis=0)
-                    self.update_samples_graph(yi2)
-                    shotsdata=shotsdata+yi2
-                    self.update_shots_graph(shotsdata/(i+1))
-                    self.eventloop.processEvents()
-                    if index != 0:
-                        midtime=time.perf_counter()-begtime
-                        time.sleep(midtime)
-                    index=index+1    
-                self.shotsdata=shotsdata/chunks
-            
-            currenttime=time.perf_counter()-starttime
-            shotsdataab = self.shotsdata[beg_index:end_index]
-            #currently averaging the data within the indices
-            datum=np.sum(shotsdataab)/(end_index-beg_index+1)
-            
-            timedata.append(currenttime)
-            chartdata.append(datum)
-            self.update_chart_graph(np.array(timedata, dtype=float),np.array(chartdata,dtype=float))
-            self.charttimedata=timedata
-            self.chartdata=chartdata
-            time.sleep(waittime)
+                if index != 0:
+                    midtime=time.perf_counter()-begtime
+                    time.sleep(midtime)
+                index=index+1    
         
-        self.stop_chart_button.setChecked(False)
-        self.stopchart=False
-        self.chartstopped=True
-        self.busy=False
-        return chartdata
+            self.shotsdata=shotsdata/chunks
+            self.busy=False
+            return shotsdata/chunks
+        else:
+            return self.shotsdata    
+    
+    def run_chart(self):
+        if self.busy==False:
+            self.busy=True
+            time.sleep(self.norm_interval/1000)
+            waittime=self.wait_time
+            beg_index=self.beginning_sample
+            end_index=self.ending_sample
+            self.singleshot=bool(self.single_shot_button.isChecked())
+            starttime=time.perf_counter()
+            chunks=self.nchunks
+            shotsdata=np.zeros(len(self.sample_xi))
+           
+            self.chartstopped=False
+            chartdata=[]
+            timedata=[]
+            index=0
+            begtime=0
+            midtime=0
+            # inlined (hardcode) instead of used acquire_nchunks to avoid racing on self.busy
+            # can instead go to subroutine if self.busy conditional on update unnecessary
+            while (self.stop_chart_button.isChecked() != True):
+                if self.singleshot:
+                    yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
+                    yi2 = yi[self.signal_channel_index][0]
+                    self.shotsdata=yi2
+                    time.sleep(self.norm_interval/1000)
+                    self.eventloop.processEvents()
+                else:
+                    for i in range(chunks):
+                        if index != 0:
+                            begtime=time.perf_counter()
+                        self.chunk_temp.set(i+1)
+                        yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
+                        yi2 = yi[self.signal_channel_index].mean(axis=0)
+                        self.update_samples_graph(yi2)
+                        shotsdata=shotsdata+yi2
+                        self.update_shots_graph(shotsdata/(i+1))
+                        self.eventloop.processEvents()
+                        if index != 0:
+                            midtime=time.perf_counter()-begtime
+                            time.sleep(midtime)
+                        index=index+1    
+                    self.shotsdata=shotsdata/chunks
+            
+                currenttime=time.perf_counter()-starttime
+                shotsdataab = self.shotsdata[beg_index:end_index]
+                #currently averaging the data within the indices
+                datum=np.sum(shotsdataab)/(end_index-beg_index+1)
+            
+                timedata.append(currenttime)
+                chartdata.append(datum)
+                self.update_chart_graph(np.array(timedata, dtype=float),np.array(chartdata,dtype=float))
+                self.charttimedata=timedata
+                self.chartdata=chartdata
+                time.sleep(waittime)
+        
+            self.stop_chart_button.setChecked(False)
+            self.stopchart=False
+            self.chartstopped=True
+            self.busy=False
+            return chartdata
+        else:
+            return self.chartdata
 
     def set_slice_xlim(self, xmin, xmax):
         self.values_plot_widget.set_xlim(xmin, xmax)
