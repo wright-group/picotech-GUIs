@@ -70,23 +70,25 @@ class ConfigWidget(QtWidgets.QWidget):
         for name, d in config["channels"].items():
             self.channels[name] = Channel(**d, nsamples=self.nsamples)
         
-        # self.client.set_nshots(50)
+        
         self.signal_channel_key="B"
         self.signal_channel_index=int(1)
-        self.norm_interval=100 #msec
+        self.norm_interval=50 #msec
         self.nchunks=int(1)
         self.beginning_sample=int(0)
         self.ending_sample=int(5)
         self.shotsdata=[]
         self.chartdata=[]
         self.charttimedata=[]
-        self.wait_time=0.1
+        self.wait_time=0.05
         self.busy=False
         self.stopchart=False
         self.chartstopped=True
         self.stopchartboolean=False
         self.singleshot=False
-        
+        self.client.set_nshots(100)
+        self.measure_id=0.00
+
         self.config = toml.loads(self.client.get_config())
 
         self.create_frame()
@@ -381,13 +383,18 @@ class ConfigWidget(QtWidgets.QWidget):
             index=0
             begtime=0
             midtime=0
+            tempid = self.client.get_measured()['measurement_id']
             for i in range(chunks):
                 if index != 0:
                     begtime=time.perf_counter()
                 self.chunk_temp.set(i+1)
-                yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
-                yi2 = yi[self.signal_channel_index].mean(axis=0)
+                while self.client.get_measured()['measurement_id'] == tempid:
+                    time.sleep(self.norm_interval/1000)
+                yi2 = self.client.get_measured()['B_mean']  # samples:  (channel, shot, sample)
+                tempid = self.client.get_measured()['measurement_id']
+                #yi2 = yi[self.signal_channel_index].mean(axis=0)
                 if self.singleshot:
+                    yi=self.client.get_measure_samples()
                     yitemp=yi[self.signal_channel_index][0]
                 else:
                     yitemp=yi2
@@ -424,11 +431,13 @@ class ConfigWidget(QtWidgets.QWidget):
             index=0
             begtime=0
             midtime=0
+            tempid=self.client.get_measured()['measurement_id']
             # inlined (hardcode) instead of used acquire_nchunks to avoid racing on self.busy
             # can instead go to subroutine if self.busy conditional on update unnecessary
             while (self.stop_chart_button.isChecked() != True):
+                shotsdata=np.zeros(len(self.sample_xi))
                 if self.singleshot:
-                    yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
+                    yi2 = self.client.get_measured_samples()
                     yi2 = yi[self.signal_channel_index][0]
                     self.shotsdata=yi2
                     time.sleep(self.norm_interval/1000)
@@ -438,8 +447,11 @@ class ConfigWidget(QtWidgets.QWidget):
                         if index != 0:
                             begtime=time.perf_counter()
                         self.chunk_temp.set(i+1)
-                        yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
-                        yi2 = yi[self.signal_channel_index].mean(axis=0)
+                        while self.client.get_measured()['measurement_id'] == tempid:
+                            time.sleep(self.norm_interval/1000)
+                        yi2 = self.client.get_measured()['B_mean']  # samples:  (channel, shot, sample)
+                        tempid = self.client.get_measured()['measurement_id']
+                        #yi2 = yi[self.signal_channel_index].mean(axis=0)
                         self.update_samples_graph(yi2)
                         shotsdata=shotsdata+yi2
                         self.update_shots_graph(shotsdata/(i+1))
@@ -449,6 +461,7 @@ class ConfigWidget(QtWidgets.QWidget):
                             time.sleep(midtime)
                         index=index+1    
                     self.shotsdata=shotsdata/chunks
+
             
                 currenttime=time.perf_counter()-starttime
                 shotsdataab = self.shotsdata[beg_index:end_index]
@@ -506,7 +519,8 @@ class ConfigWidget(QtWidgets.QWidget):
             self.samples_plot_min_voltage_line.setValue(channel_min * 1.05)
         # finish
         ymin, ymax = current_channel_object.get_range()
-        self.samples_plot_widget.set_ylim(ymin, ymax)
+
+        self.samples_plot_widget.set_ylim(ymin/1000, ymax/1000)
 
     def update(self):
         # self.busy conditional probably not necessary
@@ -517,9 +531,12 @@ class ConfigWidget(QtWidgets.QWidget):
                 yi2 = yi[self.signal_channel_index][0]
                 self.update_samples_graph(yi2)
             else:
-                yi = self.client.get_measured_samples()  # samples:  (channel, shot, sample)
-                yi2 = yi[self.signal_channel_index].mean(axis=0)
-                self.update_samples_graph(yi2)
+                yi = self.client.get_measured()['B_mean']  # samples:  (channel, shot, sample)
+                #yi2 = yi[self.signal_channel_index].mean(axis=0)
+                temp_id=self.client.get_measured()['measurement_id']
+                if temp_id != self.measure_id:
+                    self.update_samples_graph(yi)
+                    self.measure_id=temp_id
                 #don't need to process Eventloop here but may put it in anyway
         self.busy=False
 
